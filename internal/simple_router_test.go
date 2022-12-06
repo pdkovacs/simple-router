@@ -1,4 +1,4 @@
-package main
+package simple_router
 
 import (
 	"io"
@@ -13,7 +13,7 @@ import (
 
 type testRouterSuite struct {
 	suite.Suite
-	rtDef         routeDefinition
+	rtDef         RouteDefinition
 	frontendProxy *httptest.Server
 }
 
@@ -35,15 +35,16 @@ func (suite *testRouterSuite) TestBasic() {
 	suite.Equal(0, target2.callCount)
 	suite.Equal(0, target3.callCount)
 
-	suite.rtDef = routeDefinition{
-		routeBySelector: routeMap{
+	suite.rtDef = RouteDefinition{
+		RouteBySelector: RouteMap{
 			"k.[l]+.+": target1.URL,
 			"k.*t":     target2.URL,
 			"e.+a":     target3.URL,
 		},
-		headerSelector: "x-user",
+		HeaderSelector: "x-user",
 	}
-	suite.frontendProxy = httptest.NewServer(createRouter(suite.rtDef))
+	router := NewRouter(suite.rtDef)
+	suite.frontendProxy = httptest.NewServer(&router)
 	defer suite.frontendProxy.Close()
 
 	suite.testWithUser("kabat")
@@ -73,28 +74,28 @@ func (suite *testRouterSuite) TestBasic() {
 }
 
 func (suite *testRouterSuite) TestPlainProxyKeyMatching() {
-	suite.rtDef = routeDefinition{
-		routeBySelector: routeMap{
+	suite.rtDef = RouteDefinition{
+		RouteBySelector: RouteMap{
 			"kalap": "csuka",
 			"kabat": "ponty",
 		},
-		headerSelector: "x-user",
+		HeaderSelector: "x-user",
 	}
-	router := createRouter(suite.rtDef)
+	router := NewRouter(suite.rtDef)
 
 	matchingProxyKeys := router.getMatchingProxyKeys("kalap")
 	suite.Equal(map[string]struct{}{"kalap": {}}, matchingProxyKeys)
 }
 
 func (suite *testRouterSuite) TestPatternedProxyKeyMatching() {
-	suite.rtDef = routeDefinition{
-		routeBySelector: routeMap{
+	suite.rtDef = RouteDefinition{
+		RouteBySelector: RouteMap{
 			"k.[l]+.+": "csuka",
 			"ka.at":    "ponty",
 		},
-		headerSelector: "x-user",
+		HeaderSelector: "x-user",
 	}
-	router := createRouter(suite.rtDef)
+	router := NewRouter(suite.rtDef)
 
 	matchingProxyKeys := router.getMatchingProxyKeys("kalap")
 	suite.Equal(map[string]struct{}{"k.[l]+.+": {}}, matchingProxyKeys)
@@ -119,7 +120,7 @@ func (suite *testRouterSuite) doRequest(target string, user string) (*http.Respo
 	}
 	req.URL = parsedUrl
 	req.Header = make(http.Header)
-	req.Header[suite.rtDef.headerSelector] = []string{user}
+	req.Header[suite.rtDef.HeaderSelector] = []string{user}
 	return http.DefaultClient.Do(req)
 }
 
