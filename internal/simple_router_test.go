@@ -41,9 +41,13 @@ func (suite *testRouterSuite) TestBasic() {
 			"k.*t":     target2.URL,
 			"e.+a":     target3.URL,
 		},
-		HeaderSelector: "x-user",
+		Selector: RouteSelector{
+			Name: "x-user",
+			Type: SelectorTypeHeader,
+		},
 	}
-	router := NewRouter(suite.rtDef)
+	router, routerCreErr := NewRouter(suite.rtDef, CreateRootLogger())
+	suite.NoError(routerCreErr)
 	suite.frontendProxy = httptest.NewServer(&router)
 	defer suite.frontendProxy.Close()
 
@@ -79,12 +83,16 @@ func (suite *testRouterSuite) TestPlainProxyKeyMatching() {
 			"kalap": "csuka",
 			"kabat": "ponty",
 		},
-		HeaderSelector: "x-user",
+		Selector: RouteSelector{
+			Name: "x-user",
+			Type: SelectorTypeHeader,
+		},
 	}
-	router := NewRouter(suite.rtDef)
+	router, routerCreErr := NewRouter(suite.rtDef, CreateRootLogger())
+	suite.NoError(routerCreErr)
 
 	matchingProxyKeys := router.getMatchingProxyKeys("kalap")
-	suite.Equal(map[string]struct{}{"kalap": {}}, matchingProxyKeys)
+	suite.Equal([]string{"kalap"}, matchingProxyKeys)
 }
 
 func (suite *testRouterSuite) TestPatternedProxyKeyMatching() {
@@ -93,12 +101,46 @@ func (suite *testRouterSuite) TestPatternedProxyKeyMatching() {
 			"k.[l]+.+": "csuka",
 			"ka.at":    "ponty",
 		},
-		HeaderSelector: "x-user",
+		Selector: RouteSelector{
+			Name: "x-user",
+			Type: SelectorTypeHeader,
+		},
 	}
-	router := NewRouter(suite.rtDef)
+	router, routerCreErr := NewRouter(suite.rtDef, CreateRootLogger())
+	suite.NoError(routerCreErr)
 
 	matchingProxyKeys := router.getMatchingProxyKeys("kalap")
-	suite.Equal(map[string]struct{}{"k.[l]+.+": {}}, matchingProxyKeys)
+	suite.Equal([]string{"k.[l]+.+"}, matchingProxyKeys)
+}
+
+func (suite *testRouterSuite) TestWithCookie() {
+	target1 := createTestTarget()
+	defer target1.Close()
+
+	target2 := createTestTarget()
+	defer target2.Close()
+
+	suite.Equal(0, target1.callCount)
+	suite.Equal(0, target2.callCount)
+
+	suite.rtDef = RouteDefinition{
+		RouteBySelector: RouteMap{
+			"k.[l]+.+": target1.URL,
+			"k.*t":     target2.URL,
+		},
+		Selector: RouteSelector{
+			Name: "x-user-hint",
+			Type: SelectorTypeCookie,
+		},
+	}
+	router, routerCreErr := NewRouter(suite.rtDef, CreateRootLogger())
+	suite.NoError(routerCreErr)
+	suite.frontendProxy = httptest.NewServer(&router)
+	defer suite.frontendProxy.Close()
+
+	suite.testWithUser("kabat")
+	suite.Equal(0, target1.callCount)
+	suite.Equal(1, target2.callCount)
 }
 
 func (suite *testRouterSuite) testWithUser(user string) {
@@ -120,7 +162,16 @@ func (suite *testRouterSuite) doRequest(target string, user string) (*http.Respo
 	}
 	req.URL = parsedUrl
 	req.Header = make(http.Header)
-	req.Header[suite.rtDef.HeaderSelector] = []string{user}
+	switch suite.rtDef.Selector.Type {
+	case SelectorTypeHeader:
+		req.Header[suite.rtDef.Selector.Name] = []string{user}
+	case SelectorTypeCookie:
+		cookie := &http.Cookie{
+			Name:  suite.rtDef.Selector.Name,
+			Value: user,
+		}
+		req.AddCookie(cookie)
+	}
 	return http.DefaultClient.Do(req)
 }
 

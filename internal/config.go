@@ -10,7 +10,9 @@ import (
 type Options struct {
 	ListenAt       string   `short:"l" long:"listen-at" default:"localhost:0" description:"The address:port to listen at"`
 	RouteStrings   []string `short:"r" long:"route" description:"Route definition: <selector-pattern>;<target>" required:"true"`
-	HeaderSelector string   `short:"h" long:"header" default:"Authorization" description:"The header containing the descriminator onto which the routing will be applied"`
+	HeaderSelector string   `short:"h" long:"header-name" default:"" description:"The header containing the descriminator onto which the routing will be applied"`
+	CookieSelector string   `short:"c" long:"cookie-name" default:"" description:"The cookie containing the descriminator onto which the routing will be applied"`
+	DefaultTarget  string   `short:"d" long:"default-target" description:"Target to which requests are routed by default"`
 }
 
 type Configuration struct {
@@ -45,7 +47,31 @@ func ReadConfiguration(args []string) (Configuration, error) {
 
 	routeDefinition := RouteDefinition{}
 	routeDefinition.RouteBySelector = routeMap
-	routeDefinition.HeaderSelector = opts.HeaderSelector
+
+	if opts.HeaderSelector != "" {
+		if opts.CookieSelector != "" {
+			return config, fmt.Errorf("either header-name or cookie-name must be specified for the selector, not both")
+		}
+		routeDefinition.Selector.Type = SelectorTypeHeader
+		routeDefinition.Selector.Name = opts.HeaderSelector
+	}
+
+	if opts.CookieSelector != "" {
+		if opts.HeaderSelector != "" {
+			return config, fmt.Errorf("either header-name or cookie-name must be specified for the selector, not both")
+		}
+		routeDefinition.Selector.Type = SelectorTypeCookie
+		routeDefinition.Selector.Name = opts.CookieSelector
+	}
+
+	if routeDefinition.Selector.Type == 0 {
+		return config, fmt.Errorf("either header-name or cookie-name must be specified for the selector")
+	}
+
+	if opts.DefaultTarget == "" {
+		return config, fmt.Errorf("no default target specified")
+	}
+	routeDefinition.DefaultTarget = opts.DefaultTarget
 
 	config.RouteDef = routeDefinition
 	config.ListenAt = opts.ListenAt
